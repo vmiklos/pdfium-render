@@ -7,8 +7,10 @@ use crate::pdf::document::fonts::ToPdfFontToken;
 use crate::pdf::document::page::object::image::PdfPageImageObject;
 use crate::pdf::document::page::object::path::PdfPagePathObject;
 use crate::pdf::document::page::object::text::PdfPageTextObject;
+use crate::pdf::document::page::object::x_object_form::PdfPageXObjectFormObject;
 use crate::pdf::document::page::object::{PdfPageObject, PdfPageObjectCommon};
 use crate::pdf::document::page::objects::private::internal::PdfPageObjectsPrivate;
+use crate::pdf::document::PdfDocument;
 use crate::pdf::points::PdfPoints;
 use crate::pdf::rect::PdfRect;
 use std::ops::{Range, RangeInclusive};
@@ -151,6 +153,20 @@ pub trait PdfPageObjectsCommon<'a> {
         self.add_object(PdfPageObject::Path(object))
     }
 
+    /// Adds the given [PdfPageXObjectFormObject] to this page objects collection,
+    /// returning the XObject form object wrapped inside a generic [PdfPageObject] wrapper.
+    ///
+    /// If the containing `PdfPage` has a content regeneration strategy of
+    /// `PdfPageContentRegenerationStrategy::AutomaticOnEveryChange` then content regeneration
+    /// will be triggered on the page.
+    #[inline]
+    fn add_x_object_form_object(
+        &mut self,
+        object: PdfPageXObjectFormObject<'a>,
+    ) -> Result<PdfPageObject<'a>, PdfiumError> {
+        self.add_object(PdfPageObject::XObjectForm(object))
+    }
+
     /// Creates a new [PdfPagePathObject] for the given line, with the given
     /// stroke settings applied. The new path object will be added to this page objects collection
     /// and then returned, wrapped inside a generic [PdfPageObject] wrapper.
@@ -166,6 +182,19 @@ pub trait PdfPageObjectsCommon<'a> {
         y2: PdfPoints,
         stroke_color: PdfColor,
         stroke_width: PdfPoints,
+    ) -> Result<PdfPageObject<'a>, PdfiumError>;
+
+    /// Creates a new [PdfPageXObjectFormObject] from the source document's page at the given page
+    /// index. The new XObject form object will be added to this page objects collection and then
+    /// returned, wrapped inside a generic [PdfPageObject] wrapper.
+    ///
+    /// If the containing `PdfPage` has a content regeneration strategy of
+    /// `PdfPageContentRegenerationStrategy::AutomaticOnEveryChange` then content regeneration
+    /// will be triggered on the page.
+    fn create_x_object_form_object(
+        &mut self,
+        src_doc: &PdfDocument,
+        src_page_index: i32,
     ) -> Result<PdfPageObject<'a>, PdfiumError>;
 
     /// Creates a new [PdfPagePathObject] for the given cubic Bézier curve, with the given
@@ -416,6 +445,24 @@ where
         )?;
 
         self.add_path_object(object)
+    }
+
+    #[inline]
+    fn create_x_object_form_object(
+        &mut self,
+        src_doc: &PdfDocument,
+        src_page_index: i32,
+    ) -> Result<PdfPageObject<'a>, PdfiumError> {
+        let xobject_handle = self.bindings().FPDF_NewXObjectFromPage(
+            self.document_handle(),
+            src_doc.handle(),
+            src_page_index,
+        );
+        let form_handle = self.bindings().FPDF_NewFormObjectFromXObject(xobject_handle);
+        let object = PdfPageXObjectFormObject::from_pdfium(form_handle, None, None, self.bindings());
+        let ret = self.add_x_object_form_object(object);
+        self.bindings().FPDF_CloseXObject(xobject_handle);
+        ret
     }
 
     #[inline]
